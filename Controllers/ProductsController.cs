@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Pampazon.Data;
 using Pampazon.Models;
 
 namespace Pampazon.Controllers
@@ -7,18 +9,23 @@ namespace Pampazon.Controllers
     [Route("api/[controller]")]
     public class ProductsController : ControllerBase
     {
-        private static readonly List<Product> _products = new();
+        private readonly PampazonDbContext _context;
+
+        public ProductsController(PampazonDbContext context)
+        {
+            _context = context;
+        }
 
         [HttpGet]
-        public ActionResult<IEnumerable<Product>> GetAll()
+        public async Task<ActionResult<IEnumerable<Product>>> GetAll()
         {
-            return Ok(_products);
+            return Ok(await _context.Products.ToListAsync());
         }
 
         [HttpGet("{code}")]
-        public ActionResult<Product> Get(string code)
+        public async Task<ActionResult<Product>> Get(string code)
         {
-            var product = _products.FirstOrDefault(p => p.Code == code);
+            var product = await _context.Products.FindAsync(code);
             if (product == null)
                 return NotFound();
 
@@ -26,40 +33,58 @@ namespace Pampazon.Controllers
         }
 
         [HttpPost]
-        public ActionResult<Product> Create(Product product)
+        public async Task<ActionResult<Product>> Create(Product product)
         {
-            if (_products.Any(p => p.Code == product.Code))
+            if (await _context.Products.AnyAsync(p => p.Code == product.Code))
                 return Conflict("A product with this code already exists");
 
-            _products.Add(product);
+            _context.Products.Add(product);
+            await _context.SaveChangesAsync();
+
             return CreatedAtAction(nameof(Get), new { code = product.Code }, product);
         }
 
         [HttpPut("{code}")]
-        public IActionResult Update(string code, Product product)
+        public async Task<IActionResult> Update(string code, Product product)
         {
             if (code != product.Code)
                 return BadRequest();
 
-            var existingProduct = _products.FirstOrDefault(p => p.Code == code);
+            var existingProduct = await _context.Products.FindAsync(code);
             if (existingProduct == null)
                 return NotFound();
 
-            var index = _products.IndexOf(existingProduct);
-            _products[index] = product;
+            _context.Entry(existingProduct).CurrentValues.SetValues(product);
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!await ProductExists(code))
+                    return NotFound();
+                throw;
+            }
 
             return NoContent();
         }
 
         [HttpDelete("{code}")]
-        public IActionResult Delete(string code)
+        public async Task<IActionResult> Delete(string code)
         {
-            var product = _products.FirstOrDefault(p => p.Code == code);
+            var product = await _context.Products.FindAsync(code);
             if (product == null)
                 return NotFound();
 
-            _products.Remove(product);
+            _context.Products.Remove(product);
+            await _context.SaveChangesAsync();
             return NoContent();
+        }
+
+        private async Task<bool> ProductExists(string code)
+        {
+            return await _context.Products.AnyAsync(p => p.Code == code);
         }
     }
 } 

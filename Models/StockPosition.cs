@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Pampazon.Models
 {
@@ -28,10 +29,12 @@ namespace Pampazon.Models
         public int Quantity { get; set; }
 
         [Required]
-        public string ProductCode { get; set; } = string.Empty;
+        [ForeignKey(nameof(Product))]
+        public string ProductId { get; set; } = string.Empty;
         public Product? Product { get; set; }
 
-        public string ClientId { get; set; } = string.Empty;  // CUIT
+        [ForeignKey(nameof(Client))]
+        public string? ClientId { get; set; }  // CUIT
         public Client? Client { get; set; }
 
         public string GetPositionCode()

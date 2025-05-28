@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Pampazon.Models
 {
@@ -13,8 +14,11 @@ namespace Pampazon.Models
         [Required]
         public string CarrierCUIT { get; set; } = string.Empty;
 
-        public bool IsFinalized { get; set; }
+        [Required]
+        [ForeignKey(nameof(Order))]
+        public string OrderId { get; set; } = string.Empty;
+        public Order? Order { get; set; }
 
-        public List<Order> Orders { get; set; } = new();
+        public bool IsFinalized { get; set; }
     }
 } 

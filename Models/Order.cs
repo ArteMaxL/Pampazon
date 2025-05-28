@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using Pampazon.Enums;
 
 namespace Pampazon.Models
@@ -12,7 +13,8 @@ namespace Pampazon.Models
         public DateTime Date { get; set; }
 
         [Required]
-        public string ClientCUIT { get; set; } = string.Empty;
+        [ForeignKey(nameof(Client))]
+        public string ClientId { get; set; } = string.Empty;
         public Client? Client { get; set; }
 
         [Required]
@@ -26,6 +28,8 @@ namespace Pampazon.Models
         public string? DispatchNumber { get; set; }
         public Dispatch? Dispatch { get; set; }
 
+        public Receipt? Receipt { get; set; }
+
         public List<OrderItem> Items { get; set; } = new();
     }
 
@@ -35,13 +39,16 @@ namespace Pampazon.Models
         public int Id { get; set; }
 
         [Required]
-        public string ProductCode { get; set; } = string.Empty;
+        [ForeignKey(nameof(Product))]
+        public string ProductId { get; set; } = string.Empty;
         public Product? Product { get; set; }
 
         [Required]
         [Range(1, int.MaxValue)]
         public int Quantity { get; set; }
 
+        [Required]
+        [ForeignKey(nameof(Order))]
         public string OrderNumber { get; set; } = string.Empty;
         public Order? Order { get; set; }
     }

@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Pampazon.Data;
 using Pampazon.Models;
 
 namespace Pampazon.Controllers
@@ -7,18 +9,23 @@ namespace Pampazon.Controllers
     [Route("api/[controller]")]
     public class ClientsController : ControllerBase
     {
-        private static readonly List<Client> _clients = new();
+        private readonly PampazonDbContext _context;
+
+        public ClientsController(PampazonDbContext context)
+        {
+            _context = context;
+        }
 
         [HttpGet]
-        public ActionResult<IEnumerable<Client>> GetAll()
+        public async Task<ActionResult<IEnumerable<Client>>> GetAll()
         {
-            return Ok(_clients);
+            return Ok(await _context.Clients.ToListAsync());
         }
 
         [HttpGet("{cuit}")]
-        public ActionResult<Client> Get(string cuit)
+        public async Task<ActionResult<Client>> Get(string cuit)
         {
-            var client = _clients.FirstOrDefault(c => c.CUIT == cuit);
+            var client = await _context.Clients.FindAsync(cuit);
             if (client == null)
                 return NotFound();
 
@@ -26,40 +33,58 @@ namespace Pampazon.Controllers
         }
 
         [HttpPost]
-        public ActionResult<Client> Create(Client client)
+        public async Task<ActionResult<Client>> Create(Client client)
         {
-            if (_clients.Any(c => c.CUIT == client.CUIT))
+            if (await _context.Clients.AnyAsync(c => c.CUIT == client.CUIT))
                 return Conflict("A client with this CUIT already exists");
 
-            _clients.Add(client);
+            _context.Clients.Add(client);
+            await _context.SaveChangesAsync();
+
             return CreatedAtAction(nameof(Get), new { cuit = client.CUIT }, client);
         }
 
         [HttpPut("{cuit}")]
-        public IActionResult Update(string cuit, Client client)
+        public async Task<IActionResult> Update(string cuit, Client client)
         {
             if (cuit != client.CUIT)
                 return BadRequest();
 
-            var existingClient = _clients.FirstOrDefault(c => c.CUIT == cuit);
+            var existingClient = await _context.Clients.FindAsync(cuit);
             if (existingClient == null)
                 return NotFound();
 
-            var index = _clients.IndexOf(existingClient);
-            _clients[index] = client;
+            _context.Entry(existingClient).CurrentValues.SetValues(client);
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!await ClientExists(cuit))
+                    return NotFound();
+                throw;
+            }
 
             return NoContent();
         }
 
         [HttpDelete("{cuit}")]
-        public IActionResult Delete(string cuit)
+        public async Task<IActionResult> Delete(string cuit)
         {
-            var client = _clients.FirstOrDefault(c => c.CUIT == cuit);
+            var client = await _context.Clients.FindAsync(cuit);
             if (client == null)
                 return NotFound();
 
-            _clients.Remove(client);
+            _context.Clients.Remove(client);
+            await _context.SaveChangesAsync();
             return NoContent();
+        }
+
+        private async Task<bool> ClientExists(string cuit)
+        {
+            return await _context.Clients.AnyAsync(c => c.CUIT == cuit);
         }
     }
 } 

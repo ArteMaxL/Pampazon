@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Pampazon.Data;
 using Pampazon.Models;
 using Pampazon.Enums;
 
@@ -8,39 +10,57 @@ namespace Pampazon.Controllers
     [Route("api/[controller]")]
     public class ReceiptsController : ControllerBase
     {
-        private static readonly List<Receipt> _receipts = new();
+        private readonly PampazonDbContext _context;
+
+        public ReceiptsController(PampazonDbContext context)
+        {
+            _context = context;
+        }
 
         [HttpGet]
-        public ActionResult<IEnumerable<Receipt>> GetAll()
+        public async Task<ActionResult<IEnumerable<Receipt>>> GetAll()
         {
-            return Ok(_receipts);
+            return Ok(await _context.Receipts
+                .Include(r => r.Client)
+                .Include(r => r.Items)
+                    .ThenInclude(i => i.Product)
+                .ToListAsync());
         }
 
         [HttpGet("{id}")]
-        public ActionResult<Receipt> Get(int id)
+        public async Task<ActionResult<Receipt>> Get(int id)
         {
-            var receipt = _receipts.FirstOrDefault(r => r.Id == id);
+            var receipt = await _context.Receipts
+                .Include(r => r.Client)
+                .Include(r => r.Items)
+                    .ThenInclude(i => i.Product)
+                .FirstOrDefaultAsync(r => r.Id == id);
+
             if (receipt == null)
                 return NotFound();
 
             return Ok(receipt);
         }
 
-        [HttpPut]
-        public ActionResult<Receipt> Create(Receipt receipt)
+        [HttpPost]
+        public async Task<ActionResult<Receipt>> Create(Receipt receipt)
         {
-            receipt.Id = _receipts.Count > 0 ? _receipts.Max(r => r.Id) + 1 : 1;
             receipt.Date = DateTime.UtcNow;
             receipt.Status = ReceiptStatus.PendingEntry;
 
-            _receipts.Add(receipt);
+            _context.Receipts.Add(receipt);
+            await _context.SaveChangesAsync();
+
             return CreatedAtAction(nameof(Get), new { id = receipt.Id }, receipt);
         }
 
         [HttpPost("{id}/status")]
-        public IActionResult UpdateStatus(int id, [FromBody] ReceiptStatus newStatus)
+        public async Task<IActionResult> UpdateStatus(int id, [FromBody] ReceiptStatus newStatus)
         {
-            var receipt = _receipts.FirstOrDefault(r => r.Id == id);
+            var receipt = await _context.Receipts
+                .Include(r => r.Items)
+                .FirstOrDefaultAsync(r => r.Id == id);
+
             if (receipt == null)
                 return NotFound();
 
@@ -49,8 +69,10 @@ namespace Pampazon.Controllers
 
             if (newStatus == ReceiptStatus.Entered)
             {
-                // Here we would update stock positions
-                // This is simplified for now
+                // Validate all items have positions assigned
+                if (!receipt.Items.Any())
+                    return BadRequest("Cannot enter a receipt without items");
+
                 receipt.Status = newStatus;
             }
             else if (newStatus == ReceiptStatus.Rejected)
@@ -62,24 +84,53 @@ namespace Pampazon.Controllers
                 return BadRequest("Invalid status transition");
             }
 
+            await _context.SaveChangesAsync();
             return NoContent();
         }
 
         [HttpPost("{id}/positions")]
-        public IActionResult AssignPositions(int id, [FromBody] List<StockPosition> positions)
+        public async Task<IActionResult> AssignPositions(int id, [FromBody] List<StockPositionAssignment> assignments)
         {
-            var receipt = _receipts.FirstOrDefault(r => r.Id == id);
+            var receipt = await _context.Receipts
+                .Include(r => r.Items)
+                .FirstOrDefaultAsync(r => r.Id == id);
+
             if (receipt == null)
                 return NotFound();
 
             if (receipt.Status != ReceiptStatus.PendingEntry)
                 return BadRequest("Can only assign positions to pending receipts");
 
-            // Here we would validate positions and update stock
-            // This is simplified for now
+            // Get all positions that will be used
+            var positions = await _context.StockPositions
+                .Where(p => assignments.Select(a => a.PositionId).Contains(p.Id))
+                .ToListAsync();
+
+            if (positions.Count != assignments.Count)
+                return BadRequest("Some positions were not found");
+
+            // Update stock quantities
+            foreach (var assignment in assignments)
+            {
+                var position = positions.First(p => p.Id == assignment.PositionId);
+                var receiptItem = receipt.Items.FirstOrDefault(i => i.ProductId == position.ProductId);
+
+                if (receiptItem == null)
+                    return BadRequest($"Position {position.Id} contains a product not in the receipt");
+
+                position.Quantity += assignment.Quantity;
+            }
 
             receipt.Status = ReceiptStatus.Entered;
+            await _context.SaveChangesAsync();
+
             return NoContent();
         }
+    }
+
+    public class StockPositionAssignment
+    {
+        public int PositionId { get; set; }
+        public int Quantity { get; set; }
     }
 } 

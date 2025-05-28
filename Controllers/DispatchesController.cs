@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Pampazon.Data;
 using Pampazon.Models;
 using Pampazon.Enums;
 
@@ -8,69 +10,88 @@ namespace Pampazon.Controllers
     [Route("api/[controller]")]
     public class DispatchesController : ControllerBase
     {
-        private static readonly List<Dispatch> _dispatches = new();
-        private static int _dispatchCounter = 0;
+        private readonly PampazonDbContext _context;
+
+        public DispatchesController(PampazonDbContext context)
+        {
+            _context = context;
+        }
 
         [HttpGet]
-        public ActionResult<IEnumerable<Dispatch>> GetAll()
+        public async Task<ActionResult<IEnumerable<Dispatch>>> GetAll()
         {
-            return Ok(_dispatches);
+            var dispatches = await _context.Dispatches
+                .Include(d => d.Order)
+                .ToListAsync();
+            return Ok(dispatches);
         }
 
         [HttpGet("{dispatchNumber}")]
-        public ActionResult<Dispatch> Get(string dispatchNumber)
+        public async Task<ActionResult<Dispatch>> Get(string dispatchNumber)
         {
-            var dispatch = _dispatches.FirstOrDefault(d => d.DispatchNumber == dispatchNumber);
+            var dispatch = await _context.Dispatches
+                .Include(d => d.Order)
+                .FirstOrDefaultAsync(d => d.DispatchNumber == dispatchNumber);
+
             if (dispatch == null)
                 return NotFound();
 
             return Ok(dispatch);
         }
 
-        [HttpPut]
-        public ActionResult<Dispatch> Create(Dispatch dispatch)
+        [HttpPost]
+        public async Task<ActionResult<Dispatch>> Create(Dispatch dispatch)
         {
-            dispatch.DispatchNumber = $"DSP{++_dispatchCounter:D6}";
+            // Validate if the order exists and is not already dispatched
+            var order = await _context.Orders.FindAsync(dispatch.OrderId);
+            if (order == null)
+                return BadRequest("Order not found");
+
+            if (order.Status == OrderStatus.Dispatched)
+                return BadRequest("Order is already dispatched");
+
+            // Generate dispatch number
+            var lastDispatch = await _context.Dispatches
+                .OrderByDescending(d => d.DispatchNumber)
+                .FirstOrDefaultAsync();
+
+            int counter = 1;
+            if (lastDispatch != null && int.TryParse(lastDispatch.DispatchNumber[3..], out int lastNumber))
+            {
+                counter = lastNumber + 1;
+            }
+
+            dispatch.DispatchNumber = $"DSP{counter:D6}";
             dispatch.Date = DateTime.UtcNow;
             dispatch.IsFinalized = false;
 
-            _dispatches.Add(dispatch);
+            _context.Dispatches.Add(dispatch);
+            await _context.SaveChangesAsync();
+
             return CreatedAtAction(nameof(Get), new { dispatchNumber = dispatch.DispatchNumber }, dispatch);
         }
 
-        [HttpPost("{dispatchNumber}/orders/{orderNumber}")]
-        public IActionResult AddOrder(string dispatchNumber, string orderNumber)
-        {
-            var dispatch = _dispatches.FirstOrDefault(d => d.DispatchNumber == dispatchNumber);
-            if (dispatch == null)
-                return NotFound("Dispatch not found");
-
-            if (dispatch.IsFinalized)
-                return BadRequest("Cannot modify a finalized dispatch");
-
-            // Here we would get the order and validate its status
-            // This is simplified for now
-            
-            return NoContent();
-        }
-
         [HttpPost("{dispatchNumber}/finalize")]
-        public IActionResult Finalize(string dispatchNumber)
+        public async Task<IActionResult> Finalize(string dispatchNumber)
         {
-            var dispatch = _dispatches.FirstOrDefault(d => d.DispatchNumber == dispatchNumber);
+            var dispatch = await _context.Dispatches
+                .Include(d => d.Order)
+                .FirstOrDefaultAsync(d => d.DispatchNumber == dispatchNumber);
+
             if (dispatch == null)
                 return NotFound();
 
             if (dispatch.IsFinalized)
                 return BadRequest("Dispatch is already finalized");
 
-            if (!dispatch.Orders.Any())
-                return BadRequest("Cannot finalize an empty dispatch");
+            if (dispatch.Order == null)
+                return BadRequest("Cannot finalize a dispatch without an order");
 
-            // Here we would update all orders' status to Dispatched
-            // This is simplified for now
-
+            // Update order status
+            dispatch.Order.Status = OrderStatus.Dispatched;
             dispatch.IsFinalized = true;
+
+            await _context.SaveChangesAsync();
             return NoContent();
         }
     }

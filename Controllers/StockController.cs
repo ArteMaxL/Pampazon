@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Pampazon.Data;
 using Pampazon.Models;
 
 namespace Pampazon.Controllers
@@ -7,66 +9,96 @@ namespace Pampazon.Controllers
     [Route("api/[controller]")]
     public class StockController : ControllerBase
     {
-        private static readonly List<StockPosition> _positions = new();
+        private readonly PampazonDbContext _context;
 
-        [HttpGet]
-        public ActionResult<IEnumerable<StockPosition>> GetAll()
+        public StockController(PampazonDbContext context)
         {
-            return Ok(_positions);
+            _context = context;
         }
 
-        [HttpGet("product/{productCode}")]
-        public ActionResult<IEnumerable<StockPosition>> GetByProduct(string productCode)
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<StockPosition>>> GetAll()
         {
-            var positions = _positions.Where(p => p.ProductCode == productCode);
+            var positions = await _context.StockPositions
+                .Include(p => p.Product)
+                .Include(p => p.Client)
+                .ToListAsync();
+            return Ok(positions);
+        }
+
+        [HttpGet("product/{productId}")]
+        public async Task<ActionResult<IEnumerable<StockPosition>>> GetByProduct(string productId)
+        {
+            var positions = await _context.StockPositions
+                .Include(p => p.Product)
+                .Include(p => p.Client)
+                .Where(p => p.ProductId == productId)
+                .ToListAsync();
             return Ok(positions);
         }
 
         [HttpPost]
-        public ActionResult<StockPosition> Create(StockPosition position)
+        public async Task<ActionResult<StockPosition>> Create(StockPosition position)
         {
             // Validate position doesn't exist
-            if (_positions.Any(p => 
+            var exists = await _context.StockPositions.AnyAsync(p => 
                 p.Aisle == position.Aisle && 
                 p.Section == position.Section && 
                 p.Shelf == position.Shelf && 
-                p.Level == position.Level))
+                p.Level == position.Level);
+
+            if (exists)
             {
                 return Conflict("This position is already in use");
             }
 
-            position.Id = _positions.Count > 0 ? _positions.Max(p => p.Id) + 1 : 1;
-            _positions.Add(position);
+            _context.StockPositions.Add(position);
+            await _context.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetByProduct), new { productCode = position.ProductCode }, position);
+            return CreatedAtAction(nameof(GetByProduct), new { productId = position.ProductId }, position);
         }
 
         [HttpPut("{id}")]
-        public IActionResult Update(int id, StockPosition position)
+        public async Task<IActionResult> Update(int id, StockPosition position)
         {
             if (id != position.Id)
                 return BadRequest();
 
-            var existingPosition = _positions.FirstOrDefault(p => p.Id == id);
+            var existingPosition = await _context.StockPositions.FindAsync(id);
             if (existingPosition == null)
                 return NotFound();
 
-            // Update quantity and other details
-            var index = _positions.IndexOf(existingPosition);
-            _positions[index] = position;
+            _context.Entry(existingPosition).CurrentValues.SetValues(position);
+            
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!await StockPositionExists(id))
+                    return NotFound();
+                throw;
+            }
 
             return NoContent();
         }
 
         [HttpDelete("{id}")]
-        public IActionResult Delete(int id)
+        public async Task<IActionResult> Delete(int id)
         {
-            var position = _positions.FirstOrDefault(p => p.Id == id);
+            var position = await _context.StockPositions.FindAsync(id);
             if (position == null)
                 return NotFound();
 
-            _positions.Remove(position);
+            _context.StockPositions.Remove(position);
+            await _context.SaveChangesAsync();
             return NoContent();
+        }
+
+        private async Task<bool> StockPositionExists(int id)
+        {
+            return await _context.StockPositions.AnyAsync(p => p.Id == id);
         }
     }
 } 
