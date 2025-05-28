@@ -5,6 +5,9 @@ using Pampazon.Models;
 
 namespace Pampazon.Controllers
 {
+    /// <summary>
+    /// Controlador para la gestión del stock en almacén
+    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     public class StockController : ControllerBase
@@ -16,7 +19,12 @@ namespace Pampazon.Controllers
             _context = context;
         }
 
+        /// <summary>
+        /// Obtiene todas las posiciones de stock con sus productos
+        /// </summary>
+        /// <returns>Lista de posiciones de stock</returns>
         [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<StockPosition>), StatusCodes.Status200OK)]
         public async Task<ActionResult<IEnumerable<StockPosition>>> GetAll()
         {
             var positions = await _context.StockPositions
@@ -37,7 +45,16 @@ namespace Pampazon.Controllers
             return Ok(positions);
         }
 
+        /// <summary>
+        /// Registra una nueva posición de stock
+        /// </summary>
+        /// <param name="position">Datos de la posición de stock</param>
+        /// <returns>Posición de stock creada</returns>
+        /// <response code="201">Posición de stock creada exitosamente</response>
+        /// <response code="400">El producto especificado no existe</response>
         [HttpPost]
+        [ProducesResponseType(typeof(StockPosition), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<ActionResult<StockPosition>> Create(StockPosition position)
         {
             // Validate position doesn't exist
@@ -58,33 +75,39 @@ namespace Pampazon.Controllers
             return CreatedAtAction(nameof(GetByProduct), new { productId = position.ProductId }, position);
         }
 
-        [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, StockPosition position)
+        /// <summary>
+        /// Actualiza la cantidad en una posición de stock
+        /// </summary>
+        /// <param name="id">ID de la posición de stock</param>
+        /// <param name="quantity">Nueva cantidad</param>
+        /// <returns>No content si la actualización es exitosa</returns>
+        /// <response code="204">Cantidad actualizada exitosamente</response>
+        /// <response code="404">No se encontró la posición de stock especificada</response>
+        [HttpPut("{id}/quantity")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateQuantity(int id, [FromBody] int quantity)
         {
-            if (id != position.Id)
-                return BadRequest();
-
-            var existingPosition = await _context.StockPositions.FindAsync(id);
-            if (existingPosition == null)
+            var position = await _context.StockPositions.FindAsync(id);
+            if (position == null)
                 return NotFound();
 
-            _context.Entry(existingPosition).CurrentValues.SetValues(position);
-            
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!await StockPositionExists(id))
-                    return NotFound();
-                throw;
-            }
+            position.Quantity = quantity;
+            await _context.SaveChangesAsync();
 
             return NoContent();
         }
 
+        /// <summary>
+        /// Elimina una posición de stock
+        /// </summary>
+        /// <param name="id">ID de la posición de stock</param>
+        /// <returns>No content si la eliminación es exitosa</returns>
+        /// <response code="204">Posición de stock eliminada exitosamente</response>
+        /// <response code="404">No se encontró la posición de stock especificada</response>
         [HttpDelete("{id}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(int id)
         {
             var position = await _context.StockPositions.FindAsync(id);

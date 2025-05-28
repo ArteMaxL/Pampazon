@@ -3,9 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using Pampazon.Data;
 using Pampazon.Models;
 using Pampazon.Enums;
+using System.ComponentModel.DataAnnotations;
 
 namespace Pampazon.Controllers
 {
+    /// <summary>
+    /// Controlador para la gestión de órdenes
+    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     public class OrdersController : ControllerBase
@@ -17,7 +21,12 @@ namespace Pampazon.Controllers
             _context = context;
         }
 
+        /// <summary>
+        /// Obtiene todas las órdenes con sus items y productos asociados
+        /// </summary>
+        /// <returns>Lista de órdenes</returns>
         [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<Order>), StatusCodes.Status200OK)]
         public async Task<ActionResult<IEnumerable<Order>>> GetAll()
         {
             return Ok(await _context.Orders
@@ -27,7 +36,14 @@ namespace Pampazon.Controllers
                 .ToListAsync());
         }
 
+        /// <summary>
+        /// Obtiene una orden específica por su número
+        /// </summary>
+        /// <param name="orderNumber">Número de orden (formato: ORDxxxxxx)</param>
+        /// <returns>Orden solicitada</returns>
         [HttpGet("{orderNumber}")]
+        [ProducesResponseType(typeof(Order), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<Order>> Get(string orderNumber)
         {
             var order = await _context.Orders
@@ -42,7 +58,14 @@ namespace Pampazon.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Crea una nueva orden
+        /// </summary>
+        /// <param name="order">Datos de la orden</param>
+        /// <returns>Orden creada</returns>
         [HttpPost]
+        [ProducesResponseType(typeof(Order), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<ActionResult<Order>> Create(Order order)
         {
             // Generate order number
@@ -66,8 +89,17 @@ namespace Pampazon.Controllers
             return CreatedAtAction(nameof(Get), new { orderNumber = order.OrderNumber }, order);
         }
 
+        /// <summary>
+        /// Actualiza el estado de una orden
+        /// </summary>
+        /// <param name="orderNumber">Número de orden</param>
+        /// <param name="newStatus">Nuevo estado</param>
+        /// <returns>No content si la actualización es exitosa</returns>
         [HttpPost("{orderNumber}/status")]
-        public async Task<IActionResult> UpdateStatus(string orderNumber, [FromBody] OrderStatus newStatus)
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateStatus(string orderNumber, [FromBody][Required] OrderStatus newStatus)
         {
             var order = await _context.Orders.FindAsync(orderNumber);
             if (order == null)
@@ -85,8 +117,17 @@ namespace Pampazon.Controllers
             return NoContent();
         }
 
+        /// <summary>
+        /// Asigna posiciones de stock a una orden y la marca como preparada
+        /// </summary>
+        /// <param name="orderNumber">Número de orden</param>
+        /// <param name="positionIds">Lista de IDs de posiciones de stock</param>
+        /// <returns>No content si la asignación es exitosa</returns>
         [HttpPost("{orderNumber}/positions")]
-        public async Task<IActionResult> AssignPositions(string orderNumber, [FromBody] List<int> positionIds)
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> AssignPositions(string orderNumber, [FromBody][Required] List<int> positionIds)
         {
             var order = await _context.Orders
                 .Include(o => o.Items)
