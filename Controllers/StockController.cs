@@ -51,12 +51,35 @@ namespace Pampazon.Controllers
         /// <param name="position">Datos de la posición de stock</param>
         /// <returns>Posición de stock creada</returns>
         /// <response code="201">Posición de stock creada exitosamente</response>
-        /// <response code="400">El producto especificado no existe</response>
+        /// <response code="400">Datos inválidos o referencias no existentes</response>
+        /// <response code="409">La posición ya está en uso</response>
         [HttpPost]
         [ProducesResponseType(typeof(StockPosition), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<StockPosition>> Create(StockPosition position)
         {
+            // Validate product exists
+            var productExists = await _context.Products.AnyAsync(p => p.Code == position.ProductId);
+            if (!productExists)
+            {
+                return BadRequest($"El producto con código {position.ProductId} no existe");
+            }
+
+            // Validate client exists
+            var clientExists = await _context.Clients.AnyAsync(c => c.CUIT == position.ClientId);
+            if (!clientExists)
+            {
+                return BadRequest($"El cliente con CUIT {position.ClientId} no existe");
+            }
+
+            // Validate receipt exists
+            var receiptExists = await _context.Receipts.AnyAsync(r => r.ReceiptNumber == position.ReceiptNumber);
+            if (!receiptExists)
+            {
+                return BadRequest($"El recibo {position.ReceiptNumber} no existe");
+            }
+
             // Validate position doesn't exist
             var exists = await _context.StockPositions.AnyAsync(p => 
                 p.Aisle == position.Aisle && 
@@ -66,8 +89,11 @@ namespace Pampazon.Controllers
 
             if (exists)
             {
-                return Conflict("This position is already in use");
+                return Conflict("Esta posición ya está en uso");
             }
+
+            // Set creation date
+            position.CreatedAt = DateTime.UtcNow;
 
             _context.StockPositions.Add(position);
             await _context.SaveChangesAsync();
