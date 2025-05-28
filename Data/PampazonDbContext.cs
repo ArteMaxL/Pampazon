@@ -3,12 +3,8 @@ using Pampazon.Models;
 
 namespace Pampazon.Data;
 
-public class PampazonDbContext : DbContext
+public class PampazonDbContext(DbContextOptions<PampazonDbContext> options) : DbContext(options)
 {
-    public PampazonDbContext(DbContextOptions<PampazonDbContext> options) : base(options)
-    {
-    }
-
     public DbSet<Client> Clients { get; set; }
     public DbSet<Product> Products { get; set; }
     public DbSet<Order> Orders { get; set; }
@@ -99,4 +95,4 @@ public class PampazonDbContext : DbContext
 
         base.OnModelCreating(modelBuilder);
     }
-} 
+}

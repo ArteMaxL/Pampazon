@@ -1,23 +1,22 @@
-namespace Pampazon.Enums
+namespace Pampazon.Enums;
+
+/// <summary>
+/// Estados posibles de un despacho
+/// </summary>
+public enum DispatchStatus
 {
     /// <summary>
-    /// Estados posibles de un despacho
+    /// Despacho pendiente de iniciar
     /// </summary>
-    public enum DispatchStatus
-    {
-        /// <summary>
-        /// Despacho pendiente de iniciar
-        /// </summary>
-        Pending,
+    Pending,
 
-        /// <summary>
-        /// Despacho en tránsito
-        /// </summary>
-        InTransit,
+    /// <summary>
+    /// Despacho en tránsito
+    /// </summary>
+    InTransit,
 
-        /// <summary>
-        /// Despacho entregado
-        /// </summary>
-        Delivered
-    }
-} 
+    /// <summary>
+    /// Despacho entregado
+    /// </summary>
+    Delivered
+}

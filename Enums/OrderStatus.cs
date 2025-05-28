@@ -1,9 +1,8 @@
-namespace Pampazon.Enums
+namespace Pampazon.Enums;
+
+public enum OrderStatus
 {
-    public enum OrderStatus
-    {
-        Pending,    // Pendiente
-        Prepared,   // Preparada
-        Dispatched  // Despachada
-    }
-} 
+    Pending,    // Pendiente
+    Prepared,   // Preparada
+    Dispatched  // Despachada
+}

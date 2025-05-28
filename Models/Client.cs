@@ -1,15 +1,14 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace Pampazon.Models
+namespace Pampazon.Models;
+
+public class Client
 {
-    public class Client
-    {
-        [Key]
-        public string CUIT { get; set; } = string.Empty;
+    [Key]
+    public string CUIT { get; set; } = string.Empty;
 
-        [Required]
-        public string BusinessName { get; set; } = string.Empty;  // Razón Social
+    [Required]
+    public string BusinessName { get; set; } = string.Empty;  // Razón Social
 
-        public List<StockPosition> RentedPositions { get; set; } = new();
-    }
-} 
+    public List<StockPosition> RentedPositions { get; set; } = new();
+}

@@ -1,23 +1,22 @@
-namespace Pampazon.Enums
+namespace Pampazon.Enums;
+
+/// <summary>
+/// Estados posibles de un recibo de mercadería
+/// </summary>
+public enum ReceiptStatus
 {
     /// <summary>
-    /// Estados posibles de un recibo de mercadería
+    /// Recibo pendiente de iniciar
     /// </summary>
-    public enum ReceiptStatus
-    {
-        /// <summary>
-        /// Recibo pendiente de iniciar
-        /// </summary>
-        Pending,
+    Pending,
 
-        /// <summary>
-        /// Recibo en proceso de ubicación
-        /// </summary>
-        InProgress,
+    /// <summary>
+    /// Recibo en proceso de ubicación
+    /// </summary>
+    InProgress,
 
-        /// <summary>
-        /// Recibo completado
-        /// </summary>
-        Completed
-    }
-} 
+    /// <summary>
+    /// Recibo completado
+    /// </summary>
+    Completed
+}
