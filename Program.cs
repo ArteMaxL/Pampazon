@@ -58,12 +58,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Pampazon API V1");
-        c.RoutePrefix = string.Empty; // Sirve la documentación en la raíz
+        c.RoutePrefix = string.Empty;
     });
 }
 
 app.UseHttpsRedirection();
-app.UseCors("AllowAll"); // Añade esta línea aquí
+app.UseCors("AllowAll");
 app.UseAuthorization();
 app.MapControllers();
 
