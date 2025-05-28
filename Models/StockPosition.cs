@@ -3,39 +3,83 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Pampazon.Models
 {
+    /// <summary>
+    /// Representa una posición de stock en el almacén
+    /// </summary>
     public class StockPosition
     {
+        /// <summary>
+        /// ID único de la posición
+        /// </summary>
         [Key]
         public int Id { get; set; }
 
+        /// <summary>
+        /// Código del producto almacenado
+        /// </summary>
         [Required]
-        [RegularExpression("[A-Z]")]
-        public char Aisle { get; set; }  // Pasillo
+        [ForeignKey(nameof(Product))]
+        public string ProductId { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Producto almacenado
+        /// </summary>
+        public Product? Product { get; set; }
+
+        /// <summary>
+        /// CUIT del cliente dueño del stock
+        /// </summary>
         [Required]
-        [Range(1, int.MaxValue)]
-        public int Section { get; set; }  // Sección
+        [ForeignKey(nameof(Client))]
+        public string ClientId { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Cliente dueño del stock
+        /// </summary>
+        public Client? Client { get; set; }
+
+        /// <summary>
+        /// Número del recibo que originó la posición
+        /// </summary>
         [Required]
-        [Range(1, int.MaxValue)]
-        public int Shelf { get; set; }    // Estantería
+        public string ReceiptNumber { get; set; } = string.Empty;
 
-        [Required]
-        [Range(1, int.MaxValue)]
-        public int Level { get; set; }    // Nivel
-
+        /// <summary>
+        /// Cantidad de producto en la posición
+        /// </summary>
         [Required]
         [Range(0, int.MaxValue)]
         public int Quantity { get; set; }
 
+        /// <summary>
+        /// Pasillo donde se encuentra la posición
+        /// </summary>
         [Required]
-        [ForeignKey(nameof(Product))]
-        public string ProductId { get; set; } = string.Empty;
-        public Product? Product { get; set; }
+        public string Aisle { get; set; } = string.Empty;
 
-        [ForeignKey(nameof(Client))]
-        public string? ClientId { get; set; }  // CUIT
-        public Client? Client { get; set; }
+        /// <summary>
+        /// Sección dentro del pasillo
+        /// </summary>
+        [Required]
+        public string Section { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Estante dentro de la sección
+        /// </summary>
+        [Required]
+        public string Shelf { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Nivel dentro del estante
+        /// </summary>
+        [Required]
+        public string Level { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Fecha de creación de la posición
+        /// </summary>
+        [Required]
+        public DateTime CreatedAt { get; set; }
 
         public string GetPositionCode()
         {
