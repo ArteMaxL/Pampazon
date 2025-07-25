@@ -20,6 +20,16 @@ public class PampazonDbContext(DbContextOptions<PampazonDbContext> options) : Db
         modelBuilder.Entity<Client>()
             .HasKey(c => c.CUIT);
 
+        // Indices for performance
+        modelBuilder.Entity<Product>()
+            .HasIndex(p => p.Description);
+
+        modelBuilder.Entity<Order>()
+            .HasIndex(o => o.Date);
+
+        modelBuilder.Entity<StockPosition>()
+            .HasIndex(sp => new { sp.ProductId, sp.ClientId });
+
         // Configure Product
         modelBuilder.Entity<Product>()
             .HasKey(p => p.Code);
