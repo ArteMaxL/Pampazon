@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Pampazon.Data;
 using Pampazon.Models;
+using Pampazon.Services;
 
 namespace Pampazon.Controllers;
 
@@ -10,8 +9,10 @@ namespace Pampazon.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public class StockController(PampazonDbContext context) : ControllerBase
+public class StockController : ControllerBase
 {
+    private readonly IStockService _service;
+    public StockController(IStockService service) => _service = service;
 
     /// <summary>
     /// Obtiene todas las posiciones de stock con sus productos
@@ -21,22 +22,13 @@ public class StockController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<StockPosition>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<StockPosition>>> GetAll()
     {
-        var positions = await context.StockPositions
-            .Include(p => p.Product)
-            .Include(p => p.Client)
-            .ToListAsync();
-        return Ok(positions);
+        return Ok(await _service.GetAllAsync());
     }
 
     [HttpGet("product/{productId}")]
     public async Task<ActionResult<IEnumerable<StockPosition>>> GetByProduct(string productId)
     {
-        var positions = await context.StockPositions
-            .Include(p => p.Product)
-            .Include(p => p.Client)
-            .Where(p => p.ProductId == productId)
-            .ToListAsync();
-        return Ok(positions);
+        return Ok(await _service.GetByProductAsync(productId));
     }
 
     /// <summary>
@@ -53,46 +45,19 @@ public class StockController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<StockPosition>> Create(StockPosition position)
     {
-        // Validate product exists
-        var productExists = await context.Products.AnyAsync(p => p.Code == position.ProductId);
-        if (!productExists)
+        try
         {
-            return BadRequest($"El producto con código {position.ProductId} no existe");
+            var created = await _service.CreateAsync(position);
+            return CreatedAtAction(nameof(GetByProduct), new { productId = created.ProductId }, created);
         }
-
-        // Validate client exists
-        var clientExists = await context.Clients.AnyAsync(c => c.CUIT == position.ClientId);
-        if (!clientExists)
+        catch (InvalidOperationException ex)
         {
-            return BadRequest($"El cliente con CUIT {position.ClientId} no existe");
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
-
-        // Validate receipt exists
-        var receiptExists = await context.Receipts.AnyAsync(r => r.ReceiptNumber == position.ReceiptNumber);
-        if (!receiptExists)
+        catch (ArgumentException ex)
         {
-            return BadRequest($"El recibo {position.ReceiptNumber} no existe");
+            return Problem(title: "Conflicto", detail: ex.Message, statusCode: StatusCodes.Status409Conflict);
         }
-
-        // Validate position doesn't exist
-        var exists = await context.StockPositions.AnyAsync(p => 
-            p.Aisle == position.Aisle && 
-            p.Section == position.Section && 
-            p.Shelf == position.Shelf && 
-            p.Level == position.Level);
-
-        if (exists)
-        {
-            return Conflict("Esta posición ya está en uso");
-        }
-
-        // Set creation date
-        position.CreatedAt = DateTime.UtcNow;
-
-        context.StockPositions.Add(position);
-        await context.SaveChangesAsync();
-
-        return CreatedAtAction(nameof(GetByProduct), new { productId = position.ProductId }, position);
     }
 
     /// <summary>
@@ -108,14 +73,15 @@ public class StockController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateQuantity(int id, [FromBody] int quantity)
     {
-        var position = await context.StockPositions.FindAsync(id);
-        if (position == null)
-            return NotFound();
-
-        position.Quantity = quantity;
-        await context.SaveChangesAsync();
-
-        return NoContent();
+        try
+        {
+            await _service.UpdateQuantityAsync(id, quantity);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return Problem(title: "No encontrado", detail: "No se encontró la posición de stock especificada", statusCode: StatusCodes.Status404NotFound);
+        }
     }
 
     /// <summary>
@@ -130,17 +96,14 @@ public class StockController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id)
     {
-        var position = await context.StockPositions.FindAsync(id);
-        if (position == null)
-            return NotFound();
-
-        context.StockPositions.Remove(position);
-        await context.SaveChangesAsync();
-        return NoContent();
-    }
-
-    private async Task<bool> StockPositionExists(int id)
-    {
-        return await context.StockPositions.AnyAsync(p => p.Id == id);
+        try
+        {
+            await _service.DeleteAsync(id);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return Problem(title: "No encontrado", detail: "No se encontró la posición de stock especificada", statusCode: StatusCodes.Status404NotFound);
+        }
     }
 }

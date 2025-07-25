@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Pampazon.Data;
+using System.Collections.Generic;
+
 using Pampazon.Models;
 using Pampazon.Enums;
+using Pampazon.Services;
 
 namespace Pampazon.Controllers;
 
@@ -11,9 +12,11 @@ namespace Pampazon.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public class ReceiptsController(PampazonDbContext context) : ControllerBase
+public class ReceiptsController : ControllerBase
 {
-
+    private readonly IReceiptService _service;
+    public ReceiptsController(IReceiptService service) => _service = service;
+    
     /// <summary>
     /// Obtiene todos los recibos de mercadería con sus detalles
     /// </summary>
@@ -22,11 +25,7 @@ public class ReceiptsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<Receipt>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<Receipt>>> GetAll()
     {
-        return Ok(await context.Receipts
-            .Include(r => r.Client)
-            .Include(r => r.Items)
-                .ThenInclude(i => i.Product)
-            .ToListAsync());
+        return Ok(await _service.GetAllAsync());
     }
 
     /// <summary>
@@ -39,15 +38,9 @@ public class ReceiptsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<Receipt>> Get(string receiptNumber)
     {
-        var receipt = await context.Receipts
-            .Include(r => r.Client)
-            .Include(r => r.Items)
-                .ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(r => r.ReceiptNumber == receiptNumber);
-
+        var receipt = await _service.GetAsync(receiptNumber);
         if (receipt == null)
-            return NotFound();
-
+            return Problem(title: "No encontrado", detail: "No se encontró el recibo especificado", statusCode: StatusCodes.Status404NotFound);
         return Ok(receipt);
     }
 
@@ -63,38 +56,15 @@ public class ReceiptsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<Receipt>> Create(Receipt receipt)
     {
-        // Validate client exists
-        var client = await context.Clients.FindAsync(receipt.ClientId);
-        if (client == null)
-            return BadRequest("Client not found");
-
-        // Validate products exist
-        foreach (var item in receipt.Items)
+        try
         {
-            var product = await context.Products.FindAsync(item.ProductId);
-            if (product == null)
-                return BadRequest($"Product {item.ProductId} not found");
+            var created = await _service.CreateAsync(receipt);
+            return CreatedAtAction(nameof(Get), new { receiptNumber = created.ReceiptNumber }, created);
         }
-
-        // Generate receipt number
-        var lastReceipt = await context.Receipts
-            .OrderByDescending(r => r.ReceiptNumber)
-            .FirstOrDefaultAsync();
-
-        int counter = 1;
-        if (lastReceipt != null && int.TryParse(lastReceipt.ReceiptNumber[3..], out int lastNumber))
+        catch (InvalidOperationException ex)
         {
-            counter = lastNumber + 1;
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
-
-        receipt.ReceiptNumber = $"RCP{counter:D6}";
-        receipt.Date = DateTime.UtcNow;
-        receipt.Status = ReceiptStatus.Pending;
-
-        context.Receipts.Add(receipt);
-        await context.SaveChangesAsync();
-
-        return CreatedAtAction(nameof(Get), new { receiptNumber = receipt.ReceiptNumber }, receipt);
     }
 
     /// <summary>
@@ -112,39 +82,19 @@ public class ReceiptsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateStatus(string receiptNumber, [FromBody] ReceiptStatus newStatus)
     {
-        var receipt = await context.Receipts.FindAsync(receiptNumber);
-        if (receipt == null)
-            return NotFound();
-
-        if (receipt.Status == ReceiptStatus.Completed)
-            return BadRequest("Cannot update status of completed receipts");
-
-        if (newStatus == ReceiptStatus.Completed && receipt.Status != ReceiptStatus.InProgress)
-            return BadRequest("Can only complete receipts that are in progress");
-
-        receipt.Status = newStatus;
-        if (newStatus == ReceiptStatus.Completed)
+        try
         {
-            receipt.CompletedAt = DateTime.UtcNow;
-
-            // Update stock positions
-            foreach (var item in receipt.Items)
-            {
-                var stockPosition = new StockPosition
-                {
-                    ProductId = item.ProductId,
-                    Quantity = item.Quantity,
-                    ClientId = receipt.ClientId,
-                    ReceiptNumber = receipt.ReceiptNumber,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                context.StockPositions.Add(stockPosition);
-            }
+            await _service.UpdateStatusAsync(receiptNumber, newStatus);
+            return NoContent();
         }
-
-        await context.SaveChangesAsync();
-        return NoContent();
+        catch (KeyNotFoundException)
+        {
+            return Problem(title: "No encontrado", detail: "No se encontró el recibo especificado", statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 
     /// <summary>
@@ -163,53 +113,18 @@ public class ReceiptsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AssignLocation(string receiptNumber, string productId, [FromBody] StockLocation location)
     {
-        var receipt = await context.Receipts
-            .Include(r => r.Items)
-            .FirstOrDefaultAsync(r => r.ReceiptNumber == receiptNumber);
-
-        if (receipt == null)
-            return NotFound("Receipt not found");
-
-        if (receipt.Status != ReceiptStatus.InProgress)
-            return BadRequest("Can only assign locations to receipts in progress");
-
-        var item = receipt.Items.FirstOrDefault(i => i.ProductId == productId);
-        if (item == null)
-            return NotFound("Product not found in receipt");
-
-        // Validate location is not already in use
-        var exists = await context.StockPositions.AnyAsync(p =>
-            p.Aisle == location.Aisle &&
-            p.Section == location.Section &&
-            p.Shelf == location.Shelf &&
-            p.Level == location.Level);
-
-        if (exists)
-            return BadRequest("Location is already in use");
-
-        // Update or create stock position
-        var stockPosition = await context.StockPositions
-            .FirstOrDefaultAsync(p => p.ReceiptNumber == receiptNumber && p.ProductId == productId);
-
-        if (stockPosition == null)
+        try
         {
-            stockPosition = new StockPosition
-            {
-                ProductId = productId,
-                Quantity = item.Quantity,
-                ClientId = receipt.ClientId,
-                ReceiptNumber = receiptNumber,
-                CreatedAt = DateTime.UtcNow
-            };
-            context.StockPositions.Add(stockPosition);
+            await _service.AssignLocationAsync(receiptNumber, productId, location);
+            return NoContent();
         }
-
-        stockPosition.Aisle = location.Aisle;
-        stockPosition.Section = location.Section;
-        stockPosition.Shelf = location.Shelf;
-        stockPosition.Level = location.Level;
-
-        await context.SaveChangesAsync();
-        return NoContent();
+        catch (KeyNotFoundException)
+        {
+            return Problem(title: "No encontrado", detail: "No se encontró el recibo o el producto especificado", statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 }

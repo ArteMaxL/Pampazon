@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Pampazon.Data;
+using System.Collections.Generic;
+
 using Pampazon.Models;
 using Pampazon.Enums;
 using System.ComponentModel.DataAnnotations;
+
+using Pampazon.Services;
 
 namespace Pampazon.Controllers;
 
@@ -12,8 +14,10 @@ namespace Pampazon.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public class OrdersController(PampazonDbContext context) : ControllerBase
+public class OrdersController : ControllerBase
 {
+    private readonly IOrderService _service;
+    public OrdersController(IOrderService service) => _service = service;
 
     /// <summary>
     /// Obtiene todas las órdenes con sus items y productos asociados
@@ -23,11 +27,8 @@ public class OrdersController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<Order>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<Order>>> GetAll()
     {
-        return Ok(await context.Orders
-            .Include(o => o.Client)
-            .Include(o => o.Items)
-                .ThenInclude(i => i.Product)
-            .ToListAsync());
+        var orders = await _service.GetAllAsync();
+        return Ok(orders);
     }
 
     /// <summary>
@@ -40,15 +41,10 @@ public class OrdersController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<Order>> Get(string orderNumber)
     {
-        var order = await context.Orders
-            .Include(o => o.Client)
-            .Include(o => o.Items)
-                .ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(o => o.OrderNumber == orderNumber);
+        var order = await _service.GetAsync(orderNumber);
 
         if (order == null)
-            return NotFound();
-
+            return Problem(title: "No encontrado", detail: "No se encontró la orden especificada", statusCode: StatusCodes.Status404NotFound);
         return Ok(order);
     }
 
@@ -62,25 +58,15 @@ public class OrdersController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<Order>> Create(Order order)
     {
-        // Generate order number
-        var lastOrder = await context.Orders
-            .OrderByDescending(o => o.OrderNumber)
-            .FirstOrDefaultAsync();
-
-        int counter = 1;
-        if (lastOrder != null && int.TryParse(lastOrder.OrderNumber[3..], out int lastNumber))
+        try
         {
-            counter = lastNumber + 1;
+            var created = await _service.CreateAsync(order);
+            return CreatedAtAction(nameof(Get), new { orderNumber = created.OrderNumber }, created);
         }
-
-        order.OrderNumber = $"ORD{counter:D6}";
-        order.Date = DateTime.UtcNow;
-        order.Status = OrderStatus.Pending;
-
-        context.Orders.Add(order);
-        await context.SaveChangesAsync();
-
-        return CreatedAtAction(nameof(Get), new { orderNumber = order.OrderNumber }, order);
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 
     /// <summary>
@@ -95,20 +81,19 @@ public class OrdersController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateStatus(string orderNumber, [FromBody][Required] OrderStatus newStatus)
     {
-        var order = await context.Orders.FindAsync(orderNumber);
-        if (order == null)
-            return NotFound();
-
-        if (order.Status != OrderStatus.Pending && newStatus == OrderStatus.Prepared)
-            return BadRequest("Can only prepare pending orders");
-
-        if (order.Status != OrderStatus.Prepared && newStatus == OrderStatus.Dispatched)
-            return BadRequest("Can only dispatch prepared orders");
-
-        order.Status = newStatus;
-        await context.SaveChangesAsync();
-
-        return NoContent();
+        try
+        {
+            await _service.UpdateStatusAsync(orderNumber, newStatus);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return Problem(title: "No encontrado", detail: "No se encontró la orden especificada", statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 
     /// <summary>
@@ -123,56 +108,18 @@ public class OrdersController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AssignPositions(string orderNumber, [FromBody][Required] List<int> positionIds)
     {
-        var order = await context.Orders
-            .Include(o => o.Items)
-            .FirstOrDefaultAsync(o => o.OrderNumber == orderNumber);
-
-        if (order == null)
-            return NotFound();
-
-        if (order.Status != OrderStatus.Pending)
-            return BadRequest("Can only assign positions to pending orders");
-
-        var positions = await context.StockPositions
-            .Include(p => p.Product)
-            .Where(p => positionIds.Contains(p.Id))
-            .ToListAsync();
-
-        if (positions.Count != positionIds.Count)
-            return BadRequest("Some positions were not found");
-
-        // Validate that positions have enough stock for the order
-        foreach (var item in order.Items)
+        try
         {
-            var availableStock = positions
-                .Where(p => p.ProductId == item.ProductId)
-                .Sum(p => p.Quantity);
-
-            if (availableStock < item.Quantity)
-                return BadRequest($"Not enough stock for product {item.ProductId}");
+            await _service.AssignPositionsAsync(orderNumber, positionIds);
+            return NoContent();
         }
-
-        // Update stock quantities
-        foreach (var item in order.Items)
+        catch (KeyNotFoundException)
         {
-            var remainingQuantity = item.Quantity;
-            var productPositions = positions
-                .Where(p => p.ProductId == item.ProductId)
-                .OrderBy(p => p.Quantity);
-
-            foreach (var position in productPositions)
-            {
-                if (remainingQuantity <= 0) break;
-
-                var quantityToTake = Math.Min(remainingQuantity, position.Quantity);
-                position.Quantity -= quantityToTake;
-                remainingQuantity -= quantityToTake;
-            }
+            return Problem(title: "No encontrado", detail: "No se encontró la orden especificada", statusCode: StatusCodes.Status404NotFound);
         }
-
-        order.Status = OrderStatus.Prepared;
-        await context.SaveChangesAsync();
-
-        return NoContent();
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 }

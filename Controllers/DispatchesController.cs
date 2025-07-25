@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Pampazon.Data;
 using Pampazon.Models;
 using Pampazon.Enums;
+using Pampazon.Services;
 
 namespace Pampazon.Controllers;
 
@@ -11,8 +10,10 @@ namespace Pampazon.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public class DispatchesController(PampazonDbContext context) : ControllerBase
+public class DispatchesController : ControllerBase
 {
+    private readonly IDispatchService _service;
+    public DispatchesController(IDispatchService service) => _service = service;
 
     /// <summary>
     /// Obtiene todos los despachos con sus órdenes asociadas
@@ -22,13 +23,7 @@ public class DispatchesController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<Dispatch>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<Dispatch>>> GetAll()
     {
-        return Ok(await context.Dispatches
-            .Include(d => d.Order)
-                .ThenInclude(o => o.Client)
-            .Include(d => d.Order)
-                .ThenInclude(o => o.Items)
-                    .ThenInclude(i => i.Product)
-            .ToListAsync());
+        return Ok(await _service.GetAllAsync());
     }
 
     /// <summary>
@@ -41,17 +36,9 @@ public class DispatchesController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<Dispatch>> Get(string dispatchNumber)
     {
-        var dispatch = await context.Dispatches
-            .Include(d => d.Order)
-                .ThenInclude(o => o.Client)
-            .Include(d => d.Order)
-                .ThenInclude(o => o.Items)
-                    .ThenInclude(i => i.Product)
-            .FirstOrDefaultAsync(d => d.DispatchNumber == dispatchNumber);
-
+        var dispatch = await _service.GetAsync(dispatchNumber);
         if (dispatch == null)
-            return NotFound();
-
+            return Problem(title: "No encontrado", detail: "No se encontró el despacho especificado", statusCode: StatusCodes.Status404NotFound);
         return Ok(dispatch);
     }
 
@@ -69,38 +56,19 @@ public class DispatchesController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<Dispatch>> CreateForOrder(string orderNumber)
     {
-        var order = await context.Orders.FindAsync(orderNumber);
-        if (order == null)
-            return NotFound();
-
-        if (order.Status != OrderStatus.Prepared)
-            return BadRequest("Order is not ready for dispatch");
-
-        // Generate dispatch number
-        var lastDispatch = await context.Dispatches
-            .OrderByDescending(d => d.DispatchNumber)
-            .FirstOrDefaultAsync();
-
-        int counter = 1;
-        if (lastDispatch != null && int.TryParse(lastDispatch.DispatchNumber[4..], out int lastNumber))
+        try
         {
-            counter = lastNumber + 1;
+            var dispatch = await _service.CreateForOrderAsync(orderNumber);
+            return CreatedAtAction(nameof(Get), new { dispatchNumber = dispatch.DispatchNumber }, dispatch);
         }
-
-        var dispatch = new Dispatch
+        catch (KeyNotFoundException)
         {
-            DispatchNumber = $"DISP{counter:D6}",
-            OrderNumber = orderNumber,
-            Status = DispatchStatus.Pending,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        order.Status = OrderStatus.Dispatched;
-
-        context.Dispatches.Add(dispatch);
-        await context.SaveChangesAsync();
-
-        return CreatedAtAction(nameof(Get), new { dispatchNumber = dispatch.DispatchNumber }, dispatch);
+            return Problem(title: "No encontrado", detail: "No se encontró la orden especificada", statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 
     /// <summary>
@@ -118,21 +86,18 @@ public class DispatchesController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateStatus(string dispatchNumber, [FromBody] DispatchStatus newStatus)
     {
-        var dispatch = await context.Dispatches.FindAsync(dispatchNumber);
-        if (dispatch == null)
-            return NotFound();
-
-        if (dispatch.Status == DispatchStatus.Delivered)
-            return BadRequest("Cannot update status of delivered dispatches");
-
-        if (newStatus == DispatchStatus.Delivered && dispatch.Status != DispatchStatus.InTransit)
-            return BadRequest("Can only mark in-transit dispatches as delivered");
-
-        dispatch.Status = newStatus;
-        if (newStatus == DispatchStatus.Delivered)
-            dispatch.DeliveredAt = DateTime.UtcNow;
-
-        await context.SaveChangesAsync();
-        return NoContent();
+        try
+        {
+            await _service.UpdateStatusAsync(dispatchNumber, newStatus);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return Problem(title: "No encontrado", detail: "No se encontró el despacho especificado", statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 }

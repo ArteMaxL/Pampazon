@@ -12,7 +12,6 @@ namespace Pampazon.Controllers;
 [Route("api/[controller]")]
 public class ClientsController(PampazonDbContext context) : ControllerBase
 {
-
     /// <summary>
     /// Obtiene todos los clientes registrados
     /// </summary>
@@ -36,8 +35,7 @@ public class ClientsController(PampazonDbContext context) : ControllerBase
     {
         var client = await context.Clients.FindAsync(cuit);
         if (client == null)
-            return NotFound();
-
+            return Problem(title: "No encontrado", detail: "No se encontró el cliente especificado", statusCode: StatusCodes.Status404NotFound);
         return Ok(client);
     }
 
@@ -54,11 +52,9 @@ public class ClientsController(PampazonDbContext context) : ControllerBase
     public async Task<ActionResult<Client>> Create(Client client)
     {
         if (await context.Clients.AnyAsync(c => c.CUIT == client.CUIT))
-            return Conflict("A client with this CUIT already exists");
-
+            return Problem(title: "Conflicto", detail: "Ya existe un cliente con el CUIT especificado", statusCode: StatusCodes.Status409Conflict);
         context.Clients.Add(client);
         await context.SaveChangesAsync();
-
         return CreatedAtAction(nameof(Get), new { cuit = client.CUIT }, client);
     }
 
@@ -78,14 +74,11 @@ public class ClientsController(PampazonDbContext context) : ControllerBase
     public async Task<IActionResult> Update(string cuit, Client client)
     {
         if (cuit != client.CUIT)
-            return BadRequest();
-
+            return Problem(title: "Datos inválidos", detail: "El CUIT en la URL no coincide con el del cliente", statusCode: StatusCodes.Status400BadRequest);
         var existingClient = await context.Clients.FindAsync(cuit);
         if (existingClient == null)
-            return NotFound();
-
+            return Problem(title: "No encontrado", detail: "No se encontró el cliente especificado", statusCode: StatusCodes.Status404NotFound);
         context.Entry(existingClient).CurrentValues.SetValues(client);
-
         try
         {
             await context.SaveChangesAsync();
@@ -93,10 +86,9 @@ public class ClientsController(PampazonDbContext context) : ControllerBase
         catch (DbUpdateConcurrencyException)
         {
             if (!await ClientExists(cuit))
-                return NotFound();
+                return Problem(title: "No encontrado", detail: "No se encontró el cliente especificado", statusCode: StatusCodes.Status404NotFound);
             throw;
         }
-
         return NoContent();
     }
 
@@ -114,8 +106,7 @@ public class ClientsController(PampazonDbContext context) : ControllerBase
     {
         var client = await context.Clients.FindAsync(cuit);
         if (client == null)
-            return NotFound();
-
+            return Problem(title: "No encontrado", detail: "No se encontró el cliente especificado", statusCode: StatusCodes.Status404NotFound);
         context.Clients.Remove(client);
         await context.SaveChangesAsync();
         return NoContent();

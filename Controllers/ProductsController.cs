@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Pampazon.Data;
 using Pampazon.Models;
+using Pampazon.Services;
 
 namespace Pampazon.Controllers;
 
@@ -10,8 +9,10 @@ namespace Pampazon.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public class ProductsController(PampazonDbContext context) : ControllerBase
+public class ProductsController : ControllerBase
 {
+    private readonly IProductService _service;
+    public ProductsController(IProductService service) => _service = service;
 
     /// <summary>
     /// Obtiene todos los productos registrados
@@ -21,7 +22,7 @@ public class ProductsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<Product>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<Product>>> GetAll()
     {
-        return Ok(await context.Products.ToListAsync());
+        return Ok(await _service.GetAllAsync());
     }
 
     /// <summary>
@@ -34,10 +35,9 @@ public class ProductsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<Product>> Get(string code)
     {
-        var product = await context.Products.FindAsync(code);
+        var product = await _service.GetAsync(code);
         if (product == null)
             return NotFound();
-
         return Ok(product);
     }
 
@@ -53,13 +53,15 @@ public class ProductsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<Product>> Create(Product product)
     {
-        if (await context.Products.AnyAsync(p => p.Code == product.Code))
-            return Conflict("A product with this code already exists");
-
-        context.Products.Add(product);
-        await context.SaveChangesAsync();
-
-        return CreatedAtAction(nameof(Get), new { code = product.Code }, product);
+        try
+        {
+            var created = await _service.CreateAsync(product);
+            return CreatedAtAction(nameof(Get), new { code = created.Code }, created);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(title: "Conflicto", detail: ex.Message, statusCode: StatusCodes.Status409Conflict);
+        }
     }
 
     /// <summary>
@@ -77,27 +79,19 @@ public class ProductsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(string code, Product product)
     {
-        if (code != product.Code)
-            return BadRequest();
-
-        var existingProduct = await context.Products.FindAsync(code);
-        if (existingProduct == null)
-            return NotFound();
-
-        context.Entry(existingProduct).CurrentValues.SetValues(product);
-
         try
         {
-            await context.SaveChangesAsync();
+            await _service.UpdateAsync(code, product);
+            return NoContent();
         }
-        catch (DbUpdateConcurrencyException)
+        catch (ArgumentException)
         {
-            if (!await ProductExists(code))
-                return NotFound();
-            throw;
+            return Problem(title: "Datos inválidos", detail: "El código en la URL no coincide con el del producto", statusCode: StatusCodes.Status400BadRequest);
         }
-
-        return NoContent();
+        catch (KeyNotFoundException)
+        {
+            return Problem(title: "No encontrado", detail: "No se encontró el producto especificado", statusCode: StatusCodes.Status404NotFound);
+        }
     }
 
     /// <summary>
@@ -112,17 +106,14 @@ public class ProductsController(PampazonDbContext context) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string code)
     {
-        var product = await context.Products.FindAsync(code);
-        if (product == null)
-            return NotFound();
-
-        context.Products.Remove(product);
-        await context.SaveChangesAsync();
-        return NoContent();
-    }
-
-    private async Task<bool> ProductExists(string code)
-    {
-        return await context.Products.AnyAsync(p => p.Code == code);
+        try
+        {
+            await _service.DeleteAsync(code);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return Problem(title: "No encontrado", detail: "No se encontró el producto especificado", statusCode: StatusCodes.Status404NotFound);
+        }
     }
 }
