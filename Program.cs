@@ -2,10 +2,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
 using Pampazon.Data;
+using Pampazon.Middleware;
+using Pampazon.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+builder.Services.AddScoped<IReceiptService, ReceiptService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<IClientService, ClientService>();
+builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<IStockService, StockService>();
+builder.Services.AddScoped<IDispatchService, DispatchService>();
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -46,10 +55,17 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // Configure Entity Framework
-builder.Services.AddDbContext<PampazonDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+// Use EF Core pooled DbContext for performance
+builder.Services.AddDbContextPool<PampazonDbContext>(options =>
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlOptions => sqlOptions.EnableRetryOnFailure()
+    ));
 
 var app = builder.Build();
+
+// Middleware global de excepciones
+app.UseMiddleware<GlobalExceptionMiddleware>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
