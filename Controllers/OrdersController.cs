@@ -45,6 +45,7 @@ public class OrdersController : ControllerBase
 
         if (order == null)
             return Problem(title: "No encontrado", detail: "No se encontró la orden especificada", statusCode: StatusCodes.Status404NotFound);
+        
         return Ok(order);
     }
 
@@ -121,5 +122,27 @@ public class OrdersController : ControllerBase
         {
             return Problem(title: "Datos inválidos", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
+    }
+
+    /// <summary>
+    /// Obtiene órdenes paginadas, filtradas y ordenadas
+    /// </summary>
+    /// <param name="page">Página (por defecto 1)</param>
+    /// <param name="pageSize">Tamaño de página (por defecto 10)</param>
+    /// <param name="search">Filtro por número de orden o cliente</param>
+    /// <param name="orderBy">Campo de ordenamiento (orderNumber, date, status)</param>
+    /// <param name="desc">Orden descendente</param>
+    /// <returns>Página de órdenes</returns>
+    [HttpGet("paged")]
+    [ProducesResponseType(typeof(PagedResult<Order>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<Order>>> GetPaged(
+        int page = 1,
+        int pageSize = 10,
+        string? search = null,
+        string? orderBy = null,
+        bool desc = false)
+    {
+        var result = await _service.GetPagedAsync(page, pageSize, search, orderBy, desc);
+        return Ok(result);
     }
 }

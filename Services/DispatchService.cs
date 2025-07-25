@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Pampazon.Data;
 using Pampazon.Models;
 using Pampazon.Enums;
+using System.Linq.Expressions;
 
 namespace Pampazon.Services;
 
@@ -56,6 +57,7 @@ public class DispatchService(PampazonDbContext context) : IDispatchService
 
         var lastDispatch = await context.Dispatches.OrderByDescending(d => d.DispatchNumber).FirstOrDefaultAsync();
         int counter = 1;
+        
         if (lastDispatch != null && int.TryParse(lastDispatch.DispatchNumber[4..], out int lastNumber))
             counter = lastNumber + 1;
 
@@ -69,6 +71,7 @@ public class DispatchService(PampazonDbContext context) : IDispatchService
 
         order.Status = OrderStatus.Dispatched;
         context.Dispatches.Add(dispatch);
+        
         await context.SaveChangesAsync();
         return dispatch;
     }
@@ -76,13 +79,66 @@ public class DispatchService(PampazonDbContext context) : IDispatchService
     public async Task UpdateStatusAsync(string dispatchNumber, DispatchStatus newStatus)
     {
         var dispatch = await context.Dispatches.FindAsync(dispatchNumber) ?? throw new KeyNotFoundException("Dispatch not found");
+        
         if (dispatch.Status == DispatchStatus.Delivered)
             throw new InvalidOperationException("Cannot update status of delivered dispatches");
+        
         if (newStatus == DispatchStatus.Delivered && dispatch.Status != DispatchStatus.InTransit)
             throw new InvalidOperationException("Can only mark in-transit dispatches as delivered");
+        
         dispatch.Status = newStatus;
+        
         if (newStatus == DispatchStatus.Delivered)
             dispatch.DeliveredAt = DateTime.UtcNow;
+        
         await context.SaveChangesAsync();
+    }
+
+    public async Task<PagedResult<Dispatch>> GetPagedAsync(int page, int pageSize, string? search, string? orderBy, bool desc)
+    {
+        var query = context.Dispatches.AsQueryable();
+        var orderMappings = new Dictionary<string, string> {
+            ["createdat"] = nameof(Dispatch.CreatedAt),
+            ["dispatchnumber"] = nameof(Dispatch.DispatchNumber),
+            ["status"] = nameof(Dispatch.Status)
+        };
+
+        Expression<Func<Dispatch, bool>>? searchPredicate = null;
+
+        if (!string.IsNullOrWhiteSpace(search))
+            searchPredicate = d => d.DispatchNumber.Contains(search!) || d.OrderNumber.Contains(search!);
+        
+        var paged = await query.ApplyPagedResultAsync(page, pageSize, search, orderBy, desc, searchPredicate, orderMappings);
+        
+        paged.Items = [.. paged.Items.Select(d => new Dispatch {
+            DispatchNumber = d.DispatchNumber,
+            OrderNumber = d.OrderNumber,
+            Status = d.Status,
+            CreatedAt = d.CreatedAt,
+            DeliveredAt = d.DeliveredAt,
+            CarrierCUIT = d.CarrierCUIT,
+            IsFinalized = d.IsFinalized,
+            Order = d.Order == null ? null : new Order {
+                OrderNumber = d.Order.OrderNumber,
+                ClientId = d.Order.ClientId,
+                Status = d.Order.Status,
+                Date = d.Order.Date,
+                Client = d.Order.Client,
+                Items = d.Order.Items?.Select(i => new OrderItem {
+                    ProductId = i.ProductId,
+                    Quantity = i.Quantity,
+                    OrderNumber = i.OrderNumber,
+                    Product = i.Product == null ? null : new Product {
+                        Code = i.Product.Code,
+                        Description = i.Product.Description,
+                        Height = i.Product.Height,
+                        Width = i.Product.Width,
+                        Depth = i.Product.Depth
+                    }
+                }).ToList() ?? new List<OrderItem>()
+            }
+        })];
+
+        return paged;
     }
 }

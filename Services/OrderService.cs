@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Pampazon.Data;
 using Pampazon.Models;
 using Pampazon.Enums;
+using System.Linq.Expressions;
 
 namespace Pampazon.Services;
 
@@ -44,20 +45,25 @@ public class OrderService(PampazonDbContext context) : IOrderService
         // generate sequential order number
         var last = await context.Orders.OrderByDescending(o => o.OrderNumber).FirstOrDefaultAsync();
         int counter = 1;
+        
         if (last != null && int.TryParse(last.OrderNumber[3..], out int lastNum)) counter = lastNum + 1;
+        
         order.OrderNumber = $"ORD{counter:D6}";
         order.Date = DateTime.UtcNow;
         order.Status = OrderStatus.Pending;
 
         context.Orders.Add(order);
+
         if (order.Items?.Any() == true)
         {
             foreach (var it in order.Items)
                 it.OrderNumber = order.OrderNumber;
             context.OrderItems.AddRange(order.Items);
         }
+
         await context.SaveChangesAsync();
         await tx.CommitAsync();
+
         return order;
     }
 
@@ -67,6 +73,7 @@ public class OrderService(PampazonDbContext context) : IOrderService
 
         if (order.Status != OrderStatus.Pending && newStatus == OrderStatus.Prepared)
             throw new InvalidOperationException("Can only prepare pending orders");
+
         if (order.Status != OrderStatus.Prepared && newStatus == OrderStatus.Dispatched)
             throw new InvalidOperationException("Can only dispatch prepared orders");
 
@@ -83,12 +90,14 @@ public class OrderService(PampazonDbContext context) : IOrderService
             throw new InvalidOperationException("Can only assign positions to pending orders");
 
         var positions = await context.StockPositions.Include(p => p.Product).Where(p => positionIds.Contains(p.Id)).ToListAsync();
+        
         if (positions.Count != positionIds.Count)
             throw new InvalidOperationException("Some positions not found");
 
         foreach (var item in order.Items)
         {
             var available = positions.Where(p => p.ProductId == item.ProductId).Sum(p => p.Quantity);
+            
             if (available < item.Quantity)
                 throw new InvalidOperationException($"Not enough stock for product {item.ProductId}");
         }
@@ -99,6 +108,7 @@ public class OrderService(PampazonDbContext context) : IOrderService
             foreach (var pos in positions.Where(p => p.ProductId == item.ProductId).OrderBy(p => p.Quantity))
             {
                 if (remaining <= 0) break;
+                
                 var take = Math.Min(remaining, pos.Quantity);
                 pos.Quantity -= take;
                 remaining -= take;
@@ -107,5 +117,44 @@ public class OrderService(PampazonDbContext context) : IOrderService
 
         order.Status = OrderStatus.Prepared;
         await context.SaveChangesAsync();
+    }
+
+    public async Task<PagedResult<Order>> GetPagedAsync(int page, int pageSize, string? search, string? orderBy, bool desc)
+    {
+        var query = context.Orders.AsQueryable();
+        var orderMappings = new Dictionary<string, string> {
+            ["date"] = nameof(Order.Date),
+            ["ordernumber"] = nameof(Order.OrderNumber),
+            ["status"] = nameof(Order.Status)
+        };
+
+        Expression<Func<Order, bool>>? searchPredicate = null;
+
+        if (!string.IsNullOrWhiteSpace(search))
+            searchPredicate = o => o.OrderNumber.Contains(search!) || o.ClientId.Contains(search!);
+        
+        var paged = await query.ApplyPagedResultAsync(page, pageSize, search, orderBy, desc, searchPredicate, orderMappings);
+        
+        paged.Items = [.. paged.Items.Select(o => new Order {
+            OrderNumber = o.OrderNumber,
+            Date = o.Date,
+            Status = o.Status,
+            ClientId = o.ClientId,
+            Client = o.Client,
+            Items = o.Items.Select(i => new OrderItem {
+                ProductId = i.ProductId,
+                Quantity = i.Quantity,
+                OrderNumber = i.OrderNumber,
+                Product = new Product {
+                    Code = i.Product.Code,
+                    Description = i.Product.Description,
+                    Height = i.Product.Height,
+                    Width = i.Product.Width,
+                    Depth = i.Product.Depth
+                }
+            }).ToList()
+        })];
+
+        return paged;
     }
 }

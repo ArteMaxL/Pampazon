@@ -29,6 +29,28 @@ public class ReceiptsController : ControllerBase
     }
 
     /// <summary>
+    /// Obtiene recibos paginados, filtrados y ordenados
+    /// </summary>
+    /// <param name="page">Página (por defecto 1)</param>
+    /// <param name="pageSize">Tamaño de página (por defecto 10)</param>
+    /// <param name="search">Filtro por número de recibo o cliente</param>
+    /// <param name="orderBy">Campo de ordenamiento (receiptNumber, date, status)</param>
+    /// <param name="desc">Orden descendente</param>
+    /// <returns>Página de recibos</returns>
+    [HttpGet]
+    [ProducesResponseType(typeof(PagedResult<Receipt>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<Receipt>>> GetAll(
+        int page = 1,
+        int pageSize = 10,
+        string? search = null,
+        string? orderBy = null,
+        bool desc = false)
+    {
+        var result = await _service.GetPagedAsync(page, pageSize, search, orderBy, desc);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Obtiene un recibo específico por su número
     /// </summary>
     /// <param name="receiptNumber">Número de recibo (formato: RCPxxxxxx)</param>
@@ -41,6 +63,7 @@ public class ReceiptsController : ControllerBase
         var receipt = await _service.GetAsync(receiptNumber);
         if (receipt == null)
             return Problem(title: "No encontrado", detail: "No se encontró el recibo especificado", statusCode: StatusCodes.Status404NotFound);
+        
         return Ok(receipt);
     }
 

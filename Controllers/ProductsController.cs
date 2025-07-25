@@ -116,4 +116,26 @@ public class ProductsController : ControllerBase
             return Problem(title: "No encontrado", detail: "No se encontró el producto especificado", statusCode: StatusCodes.Status404NotFound);
         }
     }
+
+    /// <summary>
+    /// Obtiene productos paginados, filtrados y ordenados
+    /// </summary>
+    /// <param name="page">Página (por defecto 1)</param>
+    /// <param name="pageSize">Tamaño de página (por defecto 10)</param>
+    /// <param name="search">Filtro por descripción</param>
+    /// <param name="orderBy">Campo de ordenamiento (code, description)</param>
+    /// <param name="desc">Orden descendente</param>
+    /// <returns>Página de productos</returns>
+    [HttpGet]
+    [ProducesResponseType(typeof(PagedResult<Product>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<Product>>> GetAll(
+        int page = 1,
+        int pageSize = 10,
+        string? search = null,
+        string? orderBy = null,
+        bool desc = false)
+    {
+        var result = await _service.GetPagedAsync(page, pageSize, search, orderBy, desc);
+        return Ok(result);
+    }
 }

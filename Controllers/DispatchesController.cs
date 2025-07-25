@@ -16,14 +16,25 @@ public class DispatchesController : ControllerBase
     public DispatchesController(IDispatchService service) => _service = service;
 
     /// <summary>
-    /// Obtiene todos los despachos con sus órdenes asociadas
+    /// Obtiene despachos paginados, filtrados y ordenados
     /// </summary>
-    /// <returns>Lista de despachos</returns>
+    /// <param name="page">Página (por defecto 1)</param>
+    /// <param name="pageSize">Tamaño de página (por defecto 10)</param>
+    /// <param name="search">Filtro por número de despacho u orden</param>
+    /// <param name="orderBy">Campo de ordenamiento (dispatchNumber, createdAt, status)</param>
+    /// <param name="desc">Orden descendente</param>
+    /// <returns>Página de despachos</returns>
     [HttpGet]
-    [ProducesResponseType(typeof(IEnumerable<Dispatch>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IEnumerable<Dispatch>>> GetAll()
+    [ProducesResponseType(typeof(PagedResult<Dispatch>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<Dispatch>>> GetAll(
+        int page = 1,
+        int pageSize = 10,
+        string? search = null,
+        string? orderBy = null,
+        bool desc = false)
     {
-        return Ok(await _service.GetAllAsync());
+        var result = await _service.GetPagedAsync(page, pageSize, search, orderBy, desc);
+        return Ok(result);
     }
 
     /// <summary>
@@ -39,6 +50,7 @@ public class DispatchesController : ControllerBase
         var dispatch = await _service.GetAsync(dispatchNumber);
         if (dispatch == null)
             return Problem(title: "No encontrado", detail: "No se encontró el despacho especificado", statusCode: StatusCodes.Status404NotFound);
+        
         return Ok(dispatch);
     }
 

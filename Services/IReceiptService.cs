@@ -5,6 +5,7 @@ namespace Pampazon.Services;
 
 public interface IReceiptService
 {
+    Task<PagedResult<Receipt>> GetPagedAsync(int page, int pageSize, string? search, string? orderBy, bool desc);
     Task<IEnumerable<Receipt>> GetAllAsync();
     Task<Receipt?> GetAsync(string receiptNumber);
     Task<Receipt> CreateAsync(Receipt receipt);

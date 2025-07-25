@@ -15,14 +15,25 @@ public class StockController : ControllerBase
     public StockController(IStockService service) => _service = service;
 
     /// <summary>
-    /// Obtiene todas las posiciones de stock con sus productos
+    /// Obtiene posiciones de stock paginadas, filtradas y ordenadas
     /// </summary>
-    /// <returns>Lista de posiciones de stock</returns>
+    /// <param name="page">Página (por defecto 1)</param>
+    /// <param name="pageSize">Tamaño de página (por defecto 10)</param>
+    /// <param name="search">Filtro por producto o cliente</param>
+    /// <param name="orderBy">Campo de ordenamiento (productId, clientId, quantity)</param>
+    /// <param name="desc">Orden descendente</param>
+    /// <returns>Página de posiciones de stock</returns>
     [HttpGet]
-    [ProducesResponseType(typeof(IEnumerable<StockPosition>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IEnumerable<StockPosition>>> GetAll()
+    [ProducesResponseType(typeof(PagedResult<StockPosition>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<StockPosition>>> GetAll(
+        int page = 1,
+        int pageSize = 10,
+        string? search = null,
+        string? orderBy = null,
+        bool desc = false)
     {
-        return Ok(await _service.GetAllAsync());
+        var result = await _service.GetPagedAsync(page, pageSize, search, orderBy, desc);
+        return Ok(result);
     }
 
     [HttpGet("product/{productId}")]
